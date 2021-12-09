@@ -1,0 +1,24 @@
+int32 FORWARD=0
+int32 BACKWARD=1
+int32 RIGHT=2
+int32 LEFT=3
+int32 UP=4
+int32 DOWN=5
+int32 TURN_RIGHT=6
+int32 TURN_LEFT=7
+int32 NN=10
+int32 NE=11
+int32 EE=12
+int32 SE=13
+int32 SS=14
+int32 SO=15
+int32 OO=16
+int32 NO=17
+
+int32 mode
+float32 value
+float32 max_thrust
+bool track
+---
+bool success
+string message

@@ -1,0 +1,7 @@
+int32 dac_port
+int32 voltage
+
+---
+
+bool success
+string message

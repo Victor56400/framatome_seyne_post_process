@@ -1,0 +1,13 @@
+float32 FULL_ASTERN=-1.0
+float32 HALF_ASTERN=-0.5
+float32 SLOW_ASTERN=-0.25
+float32 DEAD_SLOW_ASTERN=-0.1
+float32 STOP=0.0
+float32 DEAD_SLOW_AHEAD=0.1
+float32 SLOW_AHEAD=0.25
+float32 HALF_AHEAD=0.5
+float32 FULL_AHEAD=1.0
+
+float32 cmd
+---
+bool success

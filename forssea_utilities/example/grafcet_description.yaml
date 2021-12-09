@@ -1,0 +1,30 @@
+# The prefix of all the generated classes (e.g. driver package name)
+- prefix : Driver
+# Nested lists of the transitions as in the grafcet design
+- - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 3
+- - 1
+  - 0
+- - 3
+  - 30
+  - 3
+- - 30
+  - 300
+- - 3
+  - 300
+  - 0
+- - 4
+  - 40
+  - 3
+- - 40
+  - 300
+- - 4
+  - 41
+  - 3
+- - 41
+  - 300
+

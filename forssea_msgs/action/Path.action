@@ -1,0 +1,9 @@
+forssea_msgs/Waypoint[] waypoints
+---
+forssea_msgs/Waypoint[] remaining_waypoints
+uint8 success
+string message
+---
+float32 progress
+float32 speed
+forssea_msgs/Waypoint current_waypoint

@@ -1,0 +1,8 @@
+<!-- Driver node for the vnav node -->
+<launch>
+
+    <node name="Framatome" pkg="framatome" type="framatome_main_process.py" output="screen">
+    </node>
+
+
+</launch>

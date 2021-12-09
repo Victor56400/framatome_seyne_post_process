@@ -1,0 +1,32 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<package format="2">
+    <name>forssea_utilities</name>
+    <version>5.9.0</version>
+    <description>
+        The forssea_utilities package contains useful scripts and library that should be used by forssea programmers
+        whenever possible.
+    </description>
+
+    <author>Alaa El Jawad</author>
+    <maintainer email="alaa@forssea-robotics.fr">Alaa El Jawad</maintainer>
+
+    <license>None</license>
+
+    <url type="repository">https://github.com/forssea-robotics/forssea_utilities</url>
+    <url type="bugtracker">https://github.com/forssea-robotics/forssea_utilities/issues</url>
+
+    <buildtool_depend>catkin</buildtool_depend>
+
+    <depend>roscpp</depend>
+    <exec_depend>rospy</exec_depend>
+    <depend>forssea_msgs</depend>
+    <depend>dynamic_reconfigure</depend>
+    <depend>eigen</depend>
+    <depend>yaml-cpp</depend>
+    <exec_depend>python-numpy</exec_depend>
+    <exec_depend>pymap3d</exec_depend>
+
+    <test_depend>gtest</test_depend>
+
+
+</package>

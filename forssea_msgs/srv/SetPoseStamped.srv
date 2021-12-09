@@ -1,0 +1,6 @@
+geometry_msgs/PoseStamped pose
+float32 max_thrust
+bool track
+---
+bool success
+string message
