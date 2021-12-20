@@ -42,11 +42,13 @@ class DataReader:
                                              self.marker_size / 2, 1],
                                          [self.marker_size / 2, 0, -self.marker_size / 2, 1]]).T
 
+        Acquisition.root_dir = self.root_dir
         Acquisition.metadata = self.get_metadata()
         Acquisition.base_transforms = self.get_transforms_metadata()
         Acquisition.robot_data = self.get_robot_metadata()
         self.n_set = self.get_n_set()
-        self.dataset_serial = []
+        self.dataset_serial: Iterable[Acquisition] = []
+        self.dataset_dict: Dict[Acquisition] = dict()
         self.get_all_dataset_dir(self.root_dir)
 
     def get_n_set(self) -> int:
@@ -68,6 +70,7 @@ class DataReader:
                 else:
                     if 'posit_nmea.csv' in name:
                         obj = Acquisition(os.path.join(path, name))
+                        self.dataset_dict[path] = obj
                         self.dataset_serial.append(obj)
 
         else:
@@ -246,7 +249,7 @@ class DataReader:
         Y = []
         Z = []
         for obj in self.dataset_serial:
-            if obj.valid and obj.structure == 2:
+            if obj.valid and obj.structure == 1:
                 (x, y, z) = obj.transformed_x_median, obj.transformed_y_median, obj.transformed_z_median
                 X.append(x)
                 Y.append(y)
@@ -268,6 +271,7 @@ class DataReader:
             print(f'{i/n_acq*100:3.1f}% computed, doing {acquisition}')
             try:
                 acquisition.compute_all_metadata()
+                break
             except:
                 print('WARNING : failed to compute all metadata')
             for name in col:
@@ -278,170 +282,137 @@ class DataReader:
         output = pd.DataFrame(data=lines, columns=col)
         return output
 
+    def get_acquisition(self, set: int, structure: int, plaque: int, hole: int) -> Acquisition:
+        """
+            return the acquisition
+        """
+        return self.dataset_dict[self.get_acquisition_key(set, structure, plaque, hole)]
 
-if __name__ == '__main__':
+    def get_acquisition_key(self, set: int, structure: int, plaque: int, hole: int) -> str:
+        """
+            return the acquisition
+        """
+        return f'{self.root_dir}/set{set}/struct{structure}/plaque{plaque}/pose{hole}'
 
-    root_dir = '/home/victor/Downloads/framatome'
-    data_hierarchie = ['set', 'struct', 'plaque', 'pose']
+    def compute_all_base_frames(self, verbose=True):
+        """
+            Compute all the base frames for all plaques
+        """
+        for i in range(1, Acquisition.n_set+1):  # for all set a acquisition
+            base_frame_tool, base_frame_marker, base_acq = None, None, None
+            for j in range(1, Acquisition.n_structure+1):  # for all structures
+                for k in range(1, Acquisition.n_plaque+1):  # for each plaques
+                    for l in range(1, Acquisition.n_hole+1):  # for each holes
+                        acq_key = self.get_acquisition_key(
+                            set=i, structure=j, plaque=k, hole=l)
+                        try:
+                            acq = self.get_acquisition(
+                                set=i, structure=j, plaque=k, hole=l)
+                        except KeyError:
+                            if verbose:
+                                print(f'{acq_key} -> failed to read data')
+                        if base_frame_tool is None:
+                            try:
+                                acq.compute_all_metadata()
+                                # acq.compute_mean_tf_tool()
+                                acq.compute_mean_tf_marker()
+                                base_frame_tool = acq.local_avg_tool_frame
+                                base_frame_marker = acq.local_avg_marker_frame
+                                base_acq = acq
+                                if verbose:
+                                    print(f'{acq} -> become base frame')
+                                Acquisition.base_frames_tool[acq_key] = base_frame_tool
+                                Acquisition.base_frames_marker[acq_key] = base_frame_marker
+                                Acquisition.base_acquisition[acq_key] = base_acq
+                            except:
+                                pass
+                        else:
+                            Acquisition.base_frames_tool[acq_key] = base_frame_tool
+                            Acquisition.base_frames_marker[acq_key] = base_frame_marker
+                            Acquisition.base_acquisition[acq_key] = base_acq
+                            try:
+                                acq.compute_all_metadata()
+                                acq.compute_mean_tf_tool()
+                                acq.compute_mean_tf_marker()
+                                if verbose:
+                                    print(
+                                        f'{acq} -> take base frame off {acq.get_base_acquisition()}')
 
-    reader = DataReader(root_dir, data_hierarchie, plotting=False)
-    print(f'We have {reader.get_n_valid()} correct acquisitions')
+                            except:
+                                print(f'{acq} -> failed to compute tf ')
 
-    for i in [50]:
-        acq = reader.dataset_serial[i]
-        acq.transform_all_measure()
-        print(acq)
+    def compute_all_pose_in_base_frame(self):
+        """
+            compute the pose of all acquistion in the base frame
+        """
+        col = {'set': [], 'structure': [], 'plaque': [], 'hole': [],
+               'reference_frame': [], 'x_tool': [], 'y_tool': [], 'z_tool': [], 'x_marker': [], 'y_marker': [], 'z_marker': []}
 
-        print('tf total:')
-        print(acq.total_transform)
-        r = np.array(transform.Rotation.from_matrix(
-            acq.total_transform[0:3, 0:3]).as_euler('xyz'))*180/np.pi
-        t = np.array(acq.total_transform[0:3, 3])
-        print(r, t)
-        print(np.linalg.norm(t))
-        print()
+        for i in range(1, Acquisition.n_set+1):  # for all set a acquisition
+            for j in range(1, Acquisition.n_structure+1):  # for all structures
+                for k in range(1, Acquisition.n_plaque+1):  # for each plaques
+                    try:
+                        for l in range(1, Acquisition.n_hole+1):  # for each holes
+                            acq = self.get_acquisition(
+                                set=i, structure=j, plaque=k, hole=l)
+                            transform_marker = acq.compute_marker_pose_in_base_frame()
+                            transform_tool = acq.compute_tool_pose_in_base_frame()
+                            col['set'].append(acq.set)
+                            col['structure'].append(acq.structure)
+                            col['plaque'].append(acq.plaque)
+                            col['hole'].append(acq.hole)
+                            col['reference_frame'].append(
+                                transform_marker.header.frame_id)
+                            col['x_marker'].append(
+                                transform_marker.transform.translation.x)
+                            col['y_marker'].append(
+                                transform_marker.transform.translation.y)
+                            col['z_marker'].append(
+                                transform_marker.transform.translation.z)
+                            col['x_tool'].append(
+                                transform_tool.transform.translation.x)
+                            col['y_tool'].append(
+                                transform_tool.transform.translation.y)
+                            col['z_tool'].append(
+                                transform_tool.transform.translation.z)
 
-        print('tf marker:')
-        print(acq.marker_transform)
-        r = np.array(transform.Rotation.from_matrix(
-            acq.marker_transform[0:3, 0:3]).as_euler('xyz'))*180/np.pi
-        t = np.array(acq.marker_transform[0:3, 3])
-        print(r, t)
-        print(np.linalg.norm(t))
-        print()
+                    except KeyError:
+                        print(f'{acq} -> could not read data')
 
-    # acq.transform_all_measure()
-    # x = acq.data[' X']
-    # y = acq.data[' Y']
-    # z = acq.data[' Z']
-    # tx = acq.transformed_data['x']
-    # ty = acq.transformed_data['y']
-    # tz = acq.transformed_data['z']
+        return pd.DataFrame(col, columns=col.keys())
 
-    # data = reader.compute_metadata_out()
+    def print_n_time_called(self):
+        """
+            debug utils
+        """
+        for acq in self.dataset_serial:
+            print(f'{acq} -> {acq.n_time_called}')
 
-    # data = data[data['structure'] == 1]
-    # data = data[data['plaque'] == 1]
+    def plot_all_data(self, set=1, structure=1, plaque=1, hole=6):
+        """
+            plot the raw data
+        """
 
-    # print(data.columns)
+        acq = self.get_acquisition(
+            set=set, structure=structure, plaque=plaque, hole=hole)
 
-    fig = plt.figure()
-    ax3d = fig.add_subplot(111, projection='3d')
-    # ax3d.scatter(xs=data['transformed_x_mean'],
-    #             ys=data['transformed_y_mean'],
-    #             zs=data['transformed_z_mean'],
-    #             label='transformed'
-    #             )
+        fig = plt.figure(f'{acq}')
+        ax3d = fig.add_subplot(111, projection='3d')
 
-    # ax3d.scatter(xs=data['x_mean'],
-    #             ys=data['y_mean'],
-    #             zs=data['z_mean'],
-    #             label='raw'
-    #             )
-    # print(Acquisition.base_transforms)
-    ax3d.plot(xs=reader.marker_geometry[0, :],
-              ys=reader.marker_geometry[1, :],
-              zs=reader.marker_geometry[2, :],
-              label='Base marker'
-              )
-    for i in range(4):
-        x = reader.marker_geometry[0, i]
-        y = reader.marker_geometry[1, i]
-        z = reader.marker_geometry[2, i]
-        ax3d.text(x, y, z, f'{i+1}')
+        X = acq.data[' X']
+        Y = acq.data[' Y']
+        Z = acq.data[' Z']
+        x_avg = X.mean()
+        y_avg = Y.mean()
+        z_avg = Z.mean()
+        x_std = X.std()
+        y_std = Y.std()
+        z_std = Z.std()
 
-    with open(os.path.join(reader.root_dir, 'transforms_metadata.yaml')) as handle:
-        raw_data = yaml.safe_load(handle)
-    centers = {}
-    for name, marker in raw_data['markers'].items():
-        X, Y, Z, C = [], [], [], []
-        for n_corner, corner in marker['corners'].items():
-            x = corner['x']/1000
-            y = corner['y']/1000
-            z = corner['z']/1000
-            X.append(x)
-            Y.append(y)
-            Z.append(z)
-            C.append(np.array([x, y, z]))
-            ax3d.text(x, y, z, f'{n_corner}')
+        ax3d.scatter(xs=X, ys=Y, zs=Z, color='red', label='raw data')
+        ax3d.scatter(xs=x_avg, ys=y_avg, zs=z_avg,
+                     color='blue', label='mean data')
 
-        ax3d.plot(xs=X, ys=Y, zs=Z, label=f'marker {name}')
-        centers[name] = (C[0] + C[2]) / 2
-
-        measured_points = np.concatenate([[X], [Y], [Z]], axis=0)
-
-    for name, tf in Acquisition.base_transforms['markers'].items():
-        t = tf[0, :3]
-        x = t[0]
-        y = t[1]
-        z = t[2]
-        ax3d.scatter(
-            xs=centers[name][0],
-            ys=centers[name][1],
-            zs=centers[name][2],
-            marker='x'
-        )
-        ax3d.quiver(0, 0, 0, x, y, z)
-
-    for name, tf in Acquisition.base_transforms['tools'].items():
-        x = [tf[0, 3]]
-        y = [tf[1, 3]]
-        z = [tf[2, 3]]
-        ax3d.quiver(0, 0, 0, x, y, z, label='tool '+name)
-        ax3d.scatter(xs=x, ys=y, zs=z, label='tool '+name, marker='x')
-
-    ax3d.scatter(xs=[0], ys=[0], zs=[0], label='Ref point '+name, marker='x')
-    ax3d.legend()
-    ax3d.set_xlabel('X')
-    ax3d.set_ylabel('Y')
-    ax3d.set_zlabel('Z')
-    max_limit = 1
-    ax3d.set_xlim3d(-max_limit, max_limit)
-    ax3d.set_ylim3d(-max_limit, max_limit)
-    ax3d.set_zlim3d(-max_limit, max_limit)
-    plt.show()
-
-
-def trust_std(reader: DataReader):
-    trust = []
-    N = []
-    x_std = []
-    y_std = []
-    z_std = []
-    roll_std = []
-    pitch_std = []
-    yaw_std = []
-
-    for i in range(2, 6):
-        trust.append(i)
-        Acquisition.trust_threshold = i
-        metadata_output = reader.compute_metadata_out()
-        N.append(metadata_output['n_trusted_mesure'].sum())
-        x_std.append(metadata_output['x_std'].mean())
-        y_std .append(metadata_output['y_std'].mean())
-        z_std.append(metadata_output['z_std'].mean())
-        roll_std.append(metadata_output['roll_std'].mean())
-        pitch_std.append(metadata_output['pitch_std'].mean())
-        yaw_std.append(metadata_output['yaw_std'].mean())
-
-    fig, (ax1, ax2) = plt.subplots(1, 2)
-
-    ax1.scatter(trust, x_std, label='x')
-    ax1.scatter(trust, y_std, label='y')
-    ax1.scatter(trust, z_std, label='z')
-    ax2.scatter(trust, roll_std, label='roll')
-    ax2.scatter(trust, pitch_std, label='pitch')
-    ax2.scatter(trust, yaw_std, label='yaw')
-
-    ax1.legend()
-    ax2.legend()
-
-    fig.suptitle(
-        'Standard deviation as a function of the trust factor', fontsize=20)
-
-    ax1.set_xlabel('Trust', fontsize=15)
-    ax1.set_ylabel('STD (m)', fontsize=15)
-    ax2.set_xlabel('Trust', fontsize=15)
-    ax2.set_ylabel('STD (deg)', fontsize=15)
-
-    plt.show()
+        ax3d.legend()
+        print(f'{acq} -\n   averages : x={x_avg} ; y={y_avg} ; z={z_avg}\n   std : x={x_std} ; y={y_std} ; z{z_std}')
+        plt.show()

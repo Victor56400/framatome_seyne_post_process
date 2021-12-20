@@ -5,29 +5,14 @@
 Post process for the version of the operation we had in septembre
 """
 from copy import deepcopy
-from pandas.core.base import NoNewAttributesMixin
-from pandas.io import pickle
-import message_filters
-import pandas as pd
 import random
-import numpy as np
 import os
 import rospy as rp
-import csv
-import itertools
-import pynmea2
 from math import cos, sin, asin, atan2, sqrt, pi, log, pow, tan, atan, exp
-import datetime
 from geometry_msgs.msg import Quaternion, Vector3, PointStamped
 from visualization_msgs.msg import Marker, MarkerArray
-import tf2_geometry_msgs
-import tf as old_tf
 import tf2_ros as tf
 
-
-import matplotlib.pyplot as plt
-from mpl_toolkits import mplot3d
-from scipy.spatial.transform import Rotation
 
 from data_reader import DataReader
 from acquisition import Acquisition, quaternion_from_euler
@@ -138,7 +123,7 @@ class FramatomeProcess():
     def work(self):
 
         acq = process.get_random_acquisition()
-        #acq = process.reader.dataset_serial[10]
+        # acq = process.reader.dataset_serial[10]
         print(acq)
         acq.compute_all_metadata()
         acq_transforms = acq.get_random_transform_set()
@@ -153,19 +138,15 @@ class FramatomeProcess():
 if __name__ == '__main__':
     process = FramatomeProcess()
 
-    outdata = process.reader.compute_metadata_out()
-    x, y, z = process.reader.get_xyz()
+    # process.reader.compute_all_base_frames()
+    # outdata = process.reader.compute_all_pose_in_base_frame()
 
-    fig = plt.figure()
-    ax3d = fig.add_subplot(111, projection='3d')
-    ax3d.scatter(xs=x,
-                 ys=y,
-                 zs=z
-                 )
-    plt.show()
+    process.reader.plot_all_data()
+
+    # outdata = process.reader.compute_metadata_out()
 
     # process.work()
 
-    outdata.to_csv('/home/victor/Downloads/framatome/output_data.csv')
+    # outdata.to_csv('/home/victor/Downloads/framatome/output_transformed_data.csv')
 
 # TODO : test ot see is transform are correct by plotting points and tf

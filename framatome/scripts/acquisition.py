@@ -17,7 +17,7 @@ import os
 from glob import glob
 from collections import Counter
 import random
-from geometry_msgs.msg import Quaternion, Vector3, PointStamped
+from geometry_msgs.msg import Quaternion, Vector3, PointStamped, TransformStamped
 import tf2_geometry_msgs
 import tf as old_tf
 import tf2_ros as tf
@@ -109,22 +109,34 @@ class Acquisition:
     trust_threshold = 5
 
     # tf buffer commun to ALL acquisition
-    global_tf_buffer = None
+    global_tf_buffer: tf.Buffer = None
     now = None
+    n_set = 0
+    n_structure = 0
+    n_plaque = 3
+    n_hole = 20
+
+    base_frames_tool = dict()
+    base_frames_marker = dict()
+    base_acquisition = dict()
 
     def __init__(self, path: str) -> None:
         self.path = path
         self.trust_threshold = Acquisition.trust_threshold
 
         self.set = 0
-        self.struct = 0
+        self.structure = 0
         self.plaque = 0
         self.hole = 0
 
+        self.n_time_called = 0
         # use the path to know where i am
         self.parse_path(path)
         # use the metadata to have additional info
         self.parse_metadata()
+
+        self.local_avg_tool_frame = self.get_avg_hole_frame()
+        self.local_avg_marker_frame = self.get_avg_marker_frame()
 
         self.data = pd.read_csv(path)
         self.valid = not(self.data.empty)
@@ -165,8 +177,12 @@ class Acquisition:
         for word in splited:
             if 'set' in word:
                 self.set = int(word.replace('set', ''))
+                if self.set > Acquisition.n_set:
+                    Acquisition.n_set = self.set
             if 'struct' in word:
                 self.structure = int(word.replace('struct', ''))
+                if self.structure > Acquisition.n_structure:
+                    Acquisition.n_structure = self.structure
             if 'plaque' in word:
                 self.plaque = int(word.replace('plaque', ''))
             if 'pose' in word:
@@ -506,13 +522,21 @@ class Acquisition:
     def get_robot_frame_measure(self, i: int) -> str:
         return f'robot_frame_measure_{i}'
 
+    def get_avg_hole_frame(self) -> str:
+        return f'set{self.set}_structure{self.structure}_plaque{self.plaque}_hole{self.hole}_frame'
+
+    def get_avg_marker_frame(self) -> str:
+        return f'set{self.set}_structure{self.structure}_plaque{self.plaque}_marker{self.hole}_frame'
+
     def transform_measures(self) -> None:
         """
             get all measures from an acquisition and transform then to get the positin of the tool
         """
+        self.n_time_called += 1
         data = self.data
 
-        res = {'x': [], 'y': [], 'z': []}
+        res = {'x': [], 'y': [], 'z': [],
+               'qx': [], 'qy': [], 'qz': [], 'qw': []}
 
         for i in data.index:
 
@@ -566,9 +590,13 @@ class Acquisition:
             res['x'].append(tf_cam_tool.transform.translation.x)
             res['y'].append(tf_cam_tool.transform.translation.y)
             res['z'].append(tf_cam_tool.transform.translation.z)
+            res['qx'].append(tf_cam_tool.transform.rotation.x)
+            res['qy'].append(tf_cam_tool.transform.rotation.y)
+            res['qz'].append(tf_cam_tool.transform.rotation.z)
+            res['qw'].append(tf_cam_tool.transform.rotation.w)
 
         self.transformed_data = pd.DataFrame(
-            res, index=data.index, columns=['x', 'y', 'z'])
+            res, index=data.index, columns=['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw'])
 
         # we compute some metadata about that
         self.transformed_x_mean = self.transformed_data['x'].mean()
@@ -610,3 +638,102 @@ class Acquisition:
             tf_robot_tool.header.frame_id = 'robot_frame'
 
         return (tf_cam_marker, tf_marker_robot, tf_robot_tool)
+
+    def compute_mean_tf_tool(self) -> TransformStamped:
+        """
+            return the mean tf for culstered trusted measure
+        """
+        data = self.transformed_data[self.identified_clusters ==
+                                     self.major_cluster][self.data[' Trust Factor'] == 5]
+        if len(data.index) == 0:
+            data = self.transformed_data[self.identified_clusters ==
+                                         self.major_cluster]
+        mean_tf = TransformStamped()
+        mean_tf.header.stamp = self.now
+        mean_tf.header.frame_id = 'navcam'
+        mean_tf.child_frame_id = self.local_avg_tool_frame
+        mean_tf.transform.translation.x = self.transformed_x_mean_clustered_trusted
+        mean_tf.transform.translation.y = self.transformed_y_mean_clustered_trusted
+        mean_tf.transform.translation.z = self.transformed_z_mean_clustered_trusted
+
+        Q = []
+        for i in data.index:
+            Q.append([data['qx'].loc[i], data['qy'].loc[i],
+                     data['qz'].loc[i], data['qw'].loc[i]])
+
+        w = [1]*len(Q)
+        q_mean = avg_q(Q, w)
+        mean_tf.transform.rotation.x = q_mean[0]
+        mean_tf.transform.rotation.y = q_mean[1]
+        mean_tf.transform.rotation.z = q_mean[2]
+        mean_tf.transform.rotation.w = q_mean[3]
+
+        Acquisition.global_tf_buffer.set_transform(mean_tf, 'avg measure')
+
+    def compute_mean_tf_marker(self) -> TransformStamped:
+        """
+            return the mean tf for culstered trusted measure
+        """
+        mean_tf = TransformStamped()
+        mean_tf.header.stamp = self.now
+        mean_tf.header.frame_id = 'navcam'
+        mean_tf.child_frame_id = self.local_avg_marker_frame
+        mean_tf.transform.translation.x = self.x_mean_clustered_trusted
+        mean_tf.transform.translation.y = self.y_mean_clustered_trusted
+        mean_tf.transform.translation.z = self.z_mean_clustered_trusted
+
+        q_mean = self.q_mean
+        mean_tf.transform.rotation.x = q_mean[0]
+        mean_tf.transform.rotation.y = q_mean[1]
+        mean_tf.transform.rotation.z = q_mean[2]
+        mean_tf.transform.rotation.w = q_mean[3]
+
+        Acquisition.global_tf_buffer.set_transform(mean_tf, 'avg measure')
+
+    def get_acquisition_key(self) -> str:
+        """
+            return the acquisition
+        """
+        return f'{Acquisition.root_dir}/set{self.set}/struct{self.structure}/plaque{self.plaque}/pose{self.hole}'
+
+    def get_base_frame(self):
+        """
+            return the base frame
+        """
+        return Acquisition.base_frames_tool[self.get_acquisition_key()]
+
+    def get_base_frame(self):
+        """
+            return the base frame
+        """
+        return Acquisition.base_frames_marker[self.get_acquisition_key()]
+
+    def get_base_acquisition(self):
+        """
+            return the base frame
+        """
+        return Acquisition.base_acquisition[self.get_acquisition_key()]
+
+    def compute_tool_pose_in_base_frame(self) -> TransformStamped:
+        """
+            Compute the pose of the measure in the base frame
+        """
+        self.base_frame = self.get_base_frame()
+        if Acquisition.global_tf_buffer.can_transform(self.local_avg_tool_frame, self.base_frame, self.now):
+            return Acquisition.global_tf_buffer.lookup_transform(self.base_frame, self.local_avg_tool_frame, self.now)
+        else:
+            res = TransformStamped()
+            res.header.frame_id = "failed"
+            return res
+
+    def compute_marker_pose_in_base_frame(self) -> TransformStamped:
+        """
+            Compute the pose of the measure in the base frame
+        """
+        self.base_frame = self.get_base_frame()
+        if Acquisition.global_tf_buffer.can_transform(self.local_avg_marker_frame, self.base_frame, self.now):
+            return Acquisition.global_tf_buffer.lookup_transform(self.base_frame, self.local_avg_marker_frame, self.now)
+        else:
+            res = TransformStamped()
+            res.header.frame_id = "failed"
+            return res
